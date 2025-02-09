@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "splinecam"
+version = "0.1.0"
+description = "Exact Visualization and Characterization of Deep Network Geometry and Decision Boundaries"
+readme = "README.md"
+requires-python = ">=3.7"
+authors = [
+    { name="Ahmed Imtiaz Humayun" },
+    { name="Randall Balestriero" },
+    { name="Guha Balakrishnan" },
+    { name="Richard Baraniuk" },
+]
+urls = { "Homepage" = "https://imtiazhumayun.github.io/splinecam" }
+dependencies = [
+    "torch>=1.9,<=1.12",
+    "tqdm",
+    "networkx",
+    "python-igraph>=0.10",
+    "graph-tool==2.45",
+    "livelossplot",
+    "numpy",
+    "scikit-learn",
+    "matplotlib",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
