@@ -16,11 +16,10 @@ authors = [
 ]
 urls = { "Homepage" = "https://imtiazhumayun.github.io/splinecam" }
 dependencies = [
-    "torch>=1.9,<=1.12",
+    "torch",
     "tqdm",
     "networkx",
     "python-igraph>=0.10",
-    "graph-tool==2.45",
     "livelossplot",
     "numpy",
     "scikit-learn",
