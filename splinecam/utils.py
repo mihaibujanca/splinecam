@@ -88,6 +88,99 @@ def get_region_statistics(polys: torch.Tensor) -> torch.Tensor:
     return stats
 
 @torch.jit.script
+def get_region_means(regions: torch.Tensor, dims: int, dtype: torch.dtype = torch.float64, device: str = 'cuda') -> torch.Tensor:
+    """
+    Compute the means of each region.
+
+    Args:
+        regions (torch.Tensor): A tensor of shape (n_regions, n_verts, dims).
+        dims (int): The dimensionality of the points.
+        dtype (torch.dtype): Desired data type for the output tensor.
+        device (str): Device on which the tensor resides.
+
+    Returns:
+        torch.Tensor: A tensor of shape (n_regions, dims) containing the means.
+    """
+    n_regions = regions.shape[0]
+    means = torch.zeros(n_regions, dims, dtype=dtype, device=device)
+
+    for i in range(n_regions):
+        means[i] = regions[i].mean(dim=0)
+
+    return means
+
+@torch.jit.script
+def regions_list2vec(regions: torch.Tensor, repeat_first: bool = True) -> tuple:
+    """
+    Convert a list of cycles into a single vector and indices.
+
+    Args:
+        regions (torch.Tensor): A tensor of shape (n_regions, n_verts, dims).
+        repeat_first (bool): Whether to repeat the first vertex of each region.
+
+    Returns:
+        tuple: A tuple containing:
+            - out_cycles (torch.Tensor): A tensor of shape (total_verts, dims).
+            - cyc_idx (torch.Tensor): A tensor of shape (total_verts,) with cycle indices.
+            - ends (torch.Tensor): A tensor of shape (n_regions,) with end indices.
+    """
+    if repeat_first:
+        regions = torch.cat([regions, regions[:, :1]], dim=1)
+
+    out_cycles = torch.vstack([region for region in regions])
+    cyc_idx = torch.zeros(out_cycles.shape[0], dtype=torch.int64)
+    ends = torch.zeros(len(regions), dtype=torch.int64)
+
+    start = 0
+    for i in range(len(regions)):
+        n = regions[i].shape[0]
+        cyc_idx[start:start + n] = i
+        start += n
+        ends[i] = start
+
+    return out_cycles, cyc_idx, ends
+@torch.jit.script
+def split_domain_by_edge(domain: torch.Tensor) -> torch.Tensor:
+    """
+    Split a domain into edge-centroid polygons.
+
+    Args:
+        domain (torch.Tensor): A tensor of shape (n_verts, dims).
+
+    Returns:
+        torch.Tensor: A tensor of shape (n_edges, 4, dims) representing the split polygons.
+    """
+    centroid = domain[:-1].mean(dim=0)
+    out_domain = []
+
+    for i in range(len(domain) - 1):
+        each1, each2 = domain[i], domain[i + 1]
+        poly = torch.stack([each1, each2, centroid, each1])
+        out_domain.append(poly)
+
+    return torch.stack(out_domain)
+
+@torch.no_grad()
+@torch.jit.script
+def get_nneigh_points(data1: torch.Tensor, data2: torch.Tensor) -> torch.Tensor:
+    """
+    Find nearest neighbors between two datasets.
+
+    Args:
+        data1 (torch.Tensor): Tensor of shape (n1, dims).
+        data2 (torch.Tensor): Tensor of shape (n2, dims).
+
+    Returns:
+        torch.Tensor: A tensor of shape (3, dims) containing the nearest points.
+    """
+    dist = torch.cdist(data1, data2)
+    idx1 = torch.argsort(dist.min(dim=1).values)
+    idx2 = torch.argsort(dist[idx1[0]])
+
+    points = torch.vstack([data1[idx1[0]], data2[idx2[:2]]])
+    return points
+
+@torch.jit.script
 def verify_collinear(v_new: torch.Tensor, v1: torch.Tensor, v2: torch.Tensor, eps: float = 1e-7) -> bool:
     l1 = torch.linalg.norm(v1 - v2, dim=-1)
     l2 = torch.linalg.norm(v_new - v1, dim=-1)
