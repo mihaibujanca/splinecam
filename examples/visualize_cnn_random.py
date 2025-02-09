@@ -27,11 +27,22 @@ model.eval()
 model.type(torch.float64)
 
 ### define input domain to compute partitions
+# Precompute random vectors z1 and z2
+rng = torch.Generator()
 
-# prescribe input domain for partition computation
-domain = sc.utils.get_square_slice_from_one_anchor(torch.randn(1,3*32*32),
-                                                   pad_dist=2,
-                                                   seed=None)
+seed = 42
+rng.manual_seed(seed)  # Set seed for reproducibility
+
+z1 = torch.randn(3*32*32, generator=rng)
+z2 = torch.randn(3*32*32, generator=rng)
+
+# Call the function with precomputed random vectors
+domain = sc.utils.get_square_slice_from_one_anchor(
+    anchors=torch.randn(1, 3*32*32),
+    pad_dist=2,
+    z1=z1,
+    z2=z2
+)
 
 # compute linear projection from input space to target domain
 T = sc.utils.get_proj_mat(domain)
