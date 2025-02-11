@@ -1,4 +1,6 @@
 import torch
+from typing import List, Tuple, Optional
+import warnings
 
 # region_eccentricity_2d
 @torch.jit.script
@@ -28,35 +30,48 @@ def centrality(polys: torch.Tensor) -> torch.Tensor:
     std_dist = dist.std()
     return torch.tensor([mean_dist, std_dist])
 
-# get_region_statistics
 @torch.jit.script
 def get_region_statistics(polys: torch.Tensor) -> torch.Tensor:
     areas = torch.stack([region_area_2d(poly) for poly in polys])
     eccs = torch.stack([region_eccentricity_2d(poly) for poly in polys])
-
     vol_m = areas.mean().item()
     vol_std = areas.std().item()
-
     ecc_m = eccs.mean().item()
     ecc_std = eccs.std().item()
-
-    nverts = sum((poly.shape[0] - 1) for poly in polys)
+    nverts = 0
+    for poly in polys:
+        nverts += poly.shape[0] - 1  # subtract 1 for the repeated vertex
     nregions = len(polys)
-
     avg_verts = nverts / nregions
-
     centr_stats = centrality(polys)
     centr_m = centr_stats[0].item()
     centr_std = centr_stats[1].item()
-
+    # Return nine statistics, including avg_verts.
     stats = torch.tensor([
         float(vol_m), float(vol_std),
         float(nverts), float(nregions),
         float(ecc_m), float(ecc_std),
-        float(centr_m), float(centr_std)
+        float(centr_m), float(centr_std),
+        float(avg_verts)
     ], dtype=torch.float32)
-
     return stats
+
+@torch.jit.script
+def get_sparse_idx(A: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+    W: List[torch.Tensor] = []
+    for i in idx:
+        W.append(A[int(i)])
+    return torch.stack(W)
+
+@torch.jit.script
+def split_sparse_Ab(A: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    A_trans = A.transpose(0, 1)
+    b = A_trans[-1][..., None]
+    W: List[torch.Tensor] = []
+    for i in torch.arange(A_trans.shape[0] - 1):
+        W.append(A_trans[i])
+    return torch.stack(W).transpose(0, 1), b
+
 
 # verify_collinear
 @torch.jit.script
@@ -213,3 +228,66 @@ def get_nneigh_points(data1: torch.Tensor, data2: torch.Tensor) -> torch.Tensor:
 
     points = torch.vstack([data1[idx1[0]], data2[idx2[:2]]])
     return points
+
+# Deprecated: Uses numpy and scipy; please switch to create_polytope_2d_torch.
+def create_polytope_2d(scale: float = 1, seed: Optional[int] = None, init_points_n: int = 30):
+    import numpy as np
+    from scipy.spatial import ConvexHull
+    warnings.warn(
+        "create_polytope_2d (numpy/ConvexHull version) is deprecated. Use create_polytope_2d_torch instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    rng = np.random.default_rng(seed=seed)
+    points = rng.random((init_points_n, 2))
+    hull = ConvexHull(points)
+    poly = points[hull.vertices]
+    poly = poly - poly.mean(axis=0)
+    poly = poly * scale
+    return np.vstack([poly, poly[:1]])
+
+@torch.jit.script
+def cross(o: torch.Tensor, a: torch.Tensor, b: torch.Tensor) -> float:
+    return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+@torch.jit.script
+def _convex_hull(points: torch.Tensor) -> torch.Tensor:
+    N = points.shape[0]
+    sort_keys = points[:, 0] * 1000000 + points[:, 1]
+    _, idx = torch.sort(sort_keys)
+    sorted_points = points[idx]
+    
+    lower: List[torch.Tensor] = []
+    for i in range(N):
+        p = sorted_points[i]
+        while len(lower) >= 2:
+            o = lower[-2]
+            a = lower[-1]
+            if cross(o, a, p) <= 0:
+                lower.pop()
+            else:
+                break
+        lower.append(p)
+    
+    upper: List[torch.Tensor] = []
+    for i in range(N - 1, -1, -1):
+        p = sorted_points[i]
+        while len(upper) >= 2:
+            o = upper[-2]
+            a = upper[-1]
+            if cross(o, a, p) <= 0:
+                upper.pop()
+            else:
+                break
+        upper.append(p)
+    
+    hull_points = lower[:-1] + upper[:-1]
+    return torch.stack(hull_points)
+
+@torch.jit.script
+def create_polytope_2d_torch(scale: float = 1.0, init_points_n: int = 30) -> torch.Tensor:
+    points = torch.rand((init_points_n, 2))
+    hull = _convex_hull(points)
+    hull = hull - hull.mean(dim=0, keepdim=True)
+    hull = hull * scale
+    return torch.cat([hull, hull[0:1]], dim=0)
